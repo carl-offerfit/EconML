@@ -27,6 +27,8 @@ Chernozhukov et al. (2017). Double/debiased machine learning for treatment and s
 
 from abc import abstractmethod
 import numpy as np
+import scipy.stats
+import sklearn.metrics
 
 from ..sklearn_extensions.model_selection import ModelSelector
 from ..utilities import (filter_none_kwargs)
@@ -109,7 +111,10 @@ class _ModelFinal:
         if sample_weight is not None:
             return np.mean(np.average((Y_res - Y_res_pred) ** 2, weights=sample_weight, axis=0))
         else:
-            return np.mean((Y_res - Y_res_pred) ** 2)
+            smse = np.mean((Y_res - Y_res_pred) ** 2)
+            r2 = sklearn.metrics.r2_score(Y_res, Y_res_pred)
+            corr_res = scipy.stats.pearsonr(Y_res,Y_res_pred)
+            return (smse, r2, corr_res[0][0], corr_res[1][0])
 
 
 class _RLearner(_OrthoLearner):
@@ -306,7 +311,8 @@ class _RLearner(_OrthoLearner):
                  mc_agg='mean',
                  allow_missing=False,
                  use_ray=False,
-                 ray_remote_func_options=None):
+                 ray_remote_func_options=None,
+                 diagnostic_level=0):
         super().__init__(discrete_outcome=discrete_outcome,
                          discrete_treatment=discrete_treatment,
                          treatment_featurizer=treatment_featurizer,
@@ -318,7 +324,8 @@ class _RLearner(_OrthoLearner):
                          mc_agg=mc_agg,
                          allow_missing=allow_missing,
                          use_ray=use_ray,
-                         ray_remote_func_options=ray_remote_func_options)
+                         ray_remote_func_options=ray_remote_func_options,
+                         diagnostic_level=diagnostic_level)
 
     @abstractmethod
     def _gen_model_y(self):
