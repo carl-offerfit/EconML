@@ -309,15 +309,15 @@ def marketing_dml_test(
         y_params = dict(zip(y_cv_param_dict.keys(), y_param_combo))
 
         logger.info("#############################################################################")
-        logger.info(f"Fitting the standard (confounded) model with params {y_params}")
-        noncausal_est = XGBClassAUCScore(**y_params)
-        noncausal_est.fit(pd.concat([X,T], axis=1), y)
-        logger.info("Standard model fit done")
 
-        standard_predictions = pd.DataFrame(noncausal_est.predict_proba(treat_est_combo)[:,1])
-        standard_predictions = pd.concat([standard_predictions,treat_identifiers],axis=1)
-        logger.info(f"Non-causal model fit is done")
-        logger.info(f'{pd.DataFrame(standard_predictions).describe()}')
+        # logger.info(f"Fitting the standard (confounded) model with params {y_params}")
+        # noncausal_est = XGBClassAUCScore(**y_params)
+        # noncausal_est.fit(pd.concat([X,T], axis=1), y)
+        # logger.info("Standard model fit done")
+        # standard_predictions = pd.DataFrame(noncausal_est.predict_proba(treat_est_combo)[:,1])
+        # standard_predictions = pd.concat([standard_predictions,treat_identifiers],axis=1)
+        # logger.info(f"Non-causal model fit is done")
+        # logger.info(f'{pd.DataFrame(standard_predictions).describe()}')
 
         for t_param_combo in product(*t_cv_param_dict.values()):
             t_params = dict(zip(t_cv_param_dict.keys(), t_param_combo))
@@ -384,13 +384,13 @@ def marketing_dml_test(
                 # logger.info(f"{res.summary()}")
 
                 logger.info(f"{model_name}.fit done, score: {est.score_}")
-                logger.info(f"Calculating effects on {treat_est_combo}")
-                effects = pd.DataFrame(est.effect(treat_est_combo[x_cols],
-                                    T1=treat_est_combo[t_cols]))
-                effects = pd.concat([effects, treat_identifiers],axis=1)
-                effects = effects.merge(standard_predictions,on=['x_id','treat_id'])
-                logger.info("effects done")
-                logger.info(f'{pd.DataFrame(effects).describe()}')
+                # logger.info(f"Calculating effects on {treat_est_combo}")
+                # effects = pd.DataFrame(est.effect(treat_est_combo[x_cols],
+                #                     T1=treat_est_combo[t_cols]))
+                # effects = pd.concat([effects, treat_identifiers],axis=1)
+                # effects = effects.merge(standard_predictions,on=['x_id','treat_id'])
+                # logger.info("effects done")
+                # logger.info(f'{pd.DataFrame(effects).describe()}')
 
 
                 if model_name == "SparseLinearDML":
