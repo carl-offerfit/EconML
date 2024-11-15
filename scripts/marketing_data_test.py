@@ -18,6 +18,7 @@ from sklearn.metrics import roc_auc_score
 from xgboost import XGBRegressor, XGBClassifier
 import sys
 import logging
+from sklearn.model_selection import KFold
 
 logging.basicConfig(format='%(asctime)s %(levelname)-8s %(message)s', level=logging.INFO, datefmt='%Y-%m-%d %H:%M:%S')
 logger = logging.getLogger(__name__)
@@ -200,7 +201,8 @@ def marketing_dml_test(
     dml_cv_params: str | None = None,
     y_cv_params: str | None = None,
     t_cv_params: str | None = None,
-    val_pcnt: float = 0.2
+    val_pcnt: float = 0.2,
+    do_evaluate: bool = False
 ):
     """
     Main function for testing DML on high dimensional marketing data sets. Adds pre-processing
@@ -294,15 +296,21 @@ def marketing_dml_test(
     X = X.drop(['x_id'],axis=1)
 
     # Simple un-stratified train/test split - need to redo this ASAP
-    # ind = np.array(range(len(X)))
-    # train_ind = np.random.choice(len(X), int((1.0-val_pcnt)*len(X)), replace=False)
-    # val_ind = ind[~np.isin(ind, train_ind)]
-    # Xtrain = X.iloc[train_ind,:]
-    # Ttrain = T.iloc[train_ind,:]
-    # ytrain = y[train_ind]
-    # Xval = X.iloc[val_ind,:]
-    # Tval = T.iloc[val_ind,:]
-    # yval = y[val_ind]
+
+    if do_evaluate:
+        ind = np.array(range(len(X)))
+        train_ind = np.random.choice(len(X), int((1.0-val_pcnt)*len(X)), replace=False)
+        val_ind = ind[~np.isin(ind, train_ind)]
+        Xtrain = X.iloc[train_ind,:]
+        Ttrain = T.iloc[train_ind,:]
+        ytrain = y[train_ind]
+        Xval = X.iloc[val_ind,:]
+        Tval = T.iloc[val_ind,:]
+        yval = y[val_ind]
+    else:
+        Xtrain = X
+        Ttrain = T
+        ytrain = y
 
 
     for y_param_combo in product(*y_cv_param_dict.values()):
@@ -359,7 +367,7 @@ def marketing_dml_test(
                 else:
                     raise ValueError(f"Ba")
 
-                est.fit(y, T=T, X=X, W=None)
+                est.fit(ytrain, T=Ttrain, X=Xtrain, W=None)
 
                 for fold_score in est.nuisance_scores_y[0]:
                     output_results.write(f"{fold_score},")
@@ -371,17 +379,18 @@ def marketing_dml_test(
                     output_results.write(f"{y_resid_score},")
                 output_results.write("\n")
 
-
-                # logger.info("Fitting DRTester")
-                # my_dr_tester = DRTester(
-                #     model_regression=XGBRegressor(**t_params),
-                #     model_propensity=XGBClassifier(**y_params),
-                #     cate=est
-                # )
-                # my_dr_tester.fit_nuisance(Xval, Tval, yval, Xtrain, Ttrain, ytrain)
-                # logger.info("Evaluating DRTester")
-                # res = my_dr_tester.evaluate_all(Xval,Xtrain)
-                # logger.info(f"{res.summary()}")
+                if do_evaluate:
+                    logger.info("Fitting DRTester")
+                    my_dr_tester = DRTester(
+                        model_regression=XGBRegressor(**t_params),
+                        model_propensity=XGBClassifier(**y_params),
+                        cate=est,
+                        cv=KFold(5)
+                    )
+                    my_dr_tester.fit_nuisance(Xval, Tval, yval, Xtrain, Ttrain, ytrain)
+                    logger.info("Evaluating DRTester")
+                    res = my_dr_tester.evaluate_all(Xval,Xtrain)
+                    logger.info(f"{res.summary()}")
 
                 logger.info(f"{model_name}.fit done, score: {est.score_}")
                 # logger.info(f"Calculating effects on {treat_est_combo}")
