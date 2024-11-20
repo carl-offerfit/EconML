@@ -247,6 +247,7 @@ def marketing_dml_test(
     logger.info(f"y {y.shape}")
 
     if 0 < downsample_ratio < 1:
+        logger.info(f"downsample_ratio is set to {downsample_ratio}. Begin downsampling...")
         (X, y, T, _) = balanced_downsample(X=X, y=y, T_feat=T_feat, t_id=t_id)
     else:
         logger.info(f"Not downsampling data, had downsample_ratio = {downsample_ratio}")
@@ -287,12 +288,13 @@ def marketing_dml_test(
     t_cols = list(treat_df.columns.values)
     t_cols.remove('treat_id')
     X['x_id']=X.index.values
-    treat_est_combo = X.merge(treat_df, how='cross')
-    logger.info(f"Calculating effects of {len(treat_df)} treatments on audience size {len(X)} "
-                f" total {len(treat_est_combo)} combinations")
+    #treat_est_combo = X.merge(treat_df, how='cross')
+
+    #logger.info(f"Calculating effects of {len(treat_df)} treatments on audience size {len(X)} "
+    #            f" total {len(treat_est_combo)} combinations")
     # Save the combined sample identifiers, and then remove them
-    treat_identifiers = treat_est_combo[['x_id','treat_id']]
-    treat_est_combo = treat_est_combo.drop(['x_id','treat_id'],axis=1)
+    #treat_identifiers = treat_est_combo[['x_id','treat_id']]
+    #treat_est_combo = treat_est_combo.drop(['x_id','treat_id'],axis=1)
     X = X.drop(['x_id'],axis=1)
 
     # Simple un-stratified train/test split - need to redo this ASAP
@@ -374,6 +376,9 @@ def marketing_dml_test(
                 for fold_scores in est.nuisance_scores_t[0]:
                     for score in fold_scores:
                         output_results.write(f"{score},")
+
+                if isinstance(est.score_, float):
+                    est.score_ = [est.score_]
 
                 for y_resid_score in est.score_:
                     output_results.write(f"{y_resid_score},")
