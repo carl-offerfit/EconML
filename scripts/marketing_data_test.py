@@ -56,7 +56,8 @@ def scale_marketing_data(X: pd.DataFrame, T: pd.DataFrame, log_scale_skew_thresh
 
     # TODO: Update to use log scaling too. Why not?
     tscale = StandardScaler()
-    T = tscale.fit_transform(T)
+    T_scaled = tscale.fit_transform(T)
+    T = pd.DataFrame(T_scaled, index=T.index, columns=T.columns)
 
     X_unscaled = pd.DataFrame(X)
     xscale1 = StandardScaler()
@@ -77,30 +78,38 @@ def scale_marketing_data(X: pd.DataFrame, T: pd.DataFrame, log_scale_skew_thresh
     return X, T
 
 
-def remove_collinear_features(X: pd.DataFrame, y: np.array, T: pd.DataFrame, collinearity_thresh: float):
+def remove_collinear_features(
+    X: pd.DataFrame, 
+    y: np.array, 
+    T: pd.DataFrame, 
+    collinearity_thresh: float
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     Remove collinear features from both Nuisance and Treatment variables. Just a wrapper around
     SelectNonCollinear - no custom logic.
 
-    :param X:  Nuisance
+    :param X: Nuisance
     :param y: Outcome
-    :param T:  Treatment
+    :param T: Treatment
     :param collinearity_thresh: Threshold to pass to SelectNonCollinear
-    :return:
+    :return: Pandas dataframe of X and T after removing collinear features
     """
-    logger.info(f"Starting collinearity thresh {collinearity_thresh} selection on X")
+    logger.info(f"Starting collinearity thresh {collinearity_thresh} selection on X...")
     selector = collinearity.SelectNonCollinear(collinearity_thresh)
+    # Remove columns with constant values, fill empty cells with 0, and convert to numpy object.
+    X = X.loc[:, (X != X.iloc[0]).any()].fillna(0)
     selector.fit(X.to_numpy(), y)
     mask = selector.get_support()
     X = X.loc[:, mask]
-    logger.info(f"X now {X.shape}")
+    logger.info(f"After removing collinearlity, X now has a shape of: {X.shape}.")
 
-    logger.info(f"Starting collinearity thresh {collinearity_thresh} selection on T")
+    logger.info(f"Starting collinearity thresh {collinearity_thresh} selection on T...")
     selector = collinearity.SelectNonCollinear(collinearity_thresh)
-    selector.fit(T, y)
+    T = T.loc[:, (T != T.iloc[0]).any()].fillna(0)
+    selector.fit(T.to_numpy(), y)
     mask = selector.get_support()
-    T = T[:, mask]
-    logger.info(f"T now {T.shape}")
+    T = T.loc[:, mask]
+    logger.info(f"After removing collinearlity, T now has a shape of: {T.shape}.")
 
     return X, T
 
@@ -183,7 +192,7 @@ def balanced_downsample(X: pd.DataFrame, y: np.array, T_feat: pd.DataFrame, t_id
     t_id = combo_df['action_id'].to_numpy()
 
     n_pos_ex2 = y.sum()
-    logger.info(f"After downsampling non-conversion, Conversion rate  now {n_pos_ex2/len(y)}")
+    logger.info(f"After downsampling non-conversion, Conversion rate is now {n_pos_ex2/len(y)}.")
     logger.info(f"X {X.shape}")
     logger.info(f"T {T_feat.shape}")
     logger.info(f"y {y.shape}")
@@ -235,18 +244,20 @@ def marketing_dml_test(
     T_feat = data['a_processed']
     y = data['real_reward']
 
-    treat_df = pd.DataFrame(T_feat)
+    treat_df = T_feat.copy()
     treat_df['treat_id'] = t_id
     treat_df = treat_df.drop_duplicates().sort_values(by='treat_id').reindex()
 
     y[y > 1] = 1
 
-    logger.info(f"t_id {t_id.shape}")
-    logger.info(f"X {X.shape}")
-    logger.info(f"T_feat {T_feat.shape}")
-    logger.info(f"y {y.shape}")
+    logger.info(f"t_id has a shape of: {t_id.shape}")
+    logger.info(f"X has a shape of: {X.shape}")
+    logger.info(f"T_feat has a shape of: {T_feat.shape}")
+    logger.info(f"y has a shape of: {y.shape}")
+    logger.info(f"treat_df has a shape of: {treat_df.shape}")
 
     if 0 < downsample_ratio < 1:
+        logger.info(f"downsample_ratio is set to {downsample_ratio}. Begin downsampling...")
         (X, y, T, _) = balanced_downsample(X=X, y=y, T_feat=T_feat, t_id=t_id)
     else:
         logger.info(f"Not downsampling data, had downsample_ratio = {downsample_ratio}")
@@ -284,12 +295,20 @@ def marketing_dml_test(
     # treat_est_df = treat_df.drop('treat_id', axis=1)
     # Effect of the treatments trained on
     x_cols = list(X.columns.values)
-    t_cols = list(treat_df.columns.values)
-    t_cols.remove('treat_id')
+    t_cols = list(T.columns.values)
     X['x_id']=X.index.values
-    treat_est_combo = X.merge(treat_df, how='cross')
-    logger.info(f"Calculating effects of {len(treat_df)} treatments on audience size {len(X)} "
-                f" total {len(treat_est_combo)} combinations")
+
+    n_sample = 10000
+    if X.shape[0] > n_sample:
+        treat_est_combo = X.sample(n=n_sample).reset_index().merge(treat_df, how='cross')
+    else:
+        treat_est_combo = X.merge(treat_df, how='cross')
+
+    logger.info(f"""
+        Calculating effects of {len(treat_df)} treatments on down-sampled audience size of
+        {n_sample}, with total {len(treat_est_combo)} combinations.
+        """
+    )
     # Save the combined sample identifiers, and then remove them
     treat_identifiers = treat_est_combo[['x_id','treat_id']]
     treat_est_combo = treat_est_combo.drop(['x_id','treat_id'],axis=1)
@@ -318,14 +337,18 @@ def marketing_dml_test(
 
         logger.info("#############################################################################")
 
-        # logger.info(f"Fitting the standard (confounded) model with params {y_params}")
-        # noncausal_est = XGBClassAUCScore(**y_params)
-        # noncausal_est.fit(pd.concat([X,T], axis=1), y)
-        # logger.info("Standard model fit done")
-        # standard_predictions = pd.DataFrame(noncausal_est.predict_proba(treat_est_combo)[:,1])
-        # standard_predictions = pd.concat([standard_predictions,treat_identifiers],axis=1)
-        # logger.info(f"Non-causal model fit is done")
-        # logger.info(f'{pd.DataFrame(standard_predictions).describe()}')
+        logger.info(f"Fitting the standard (confounded) model with params {y_params}")
+        noncausal_est = XGBClassAUCScore(**y_params)
+        # TODO: Confirm with Carl that redefining treat_est_combo is fine since we removed
+        # collinear features.
+        treat_est_combo = pd.concat([X,T], axis=1)
+        noncausal_est.fit(treat_est_combo, y)
+        logger.info("Standard model fit done!")
+        # TODO: Confirm with Carl if replacing treat_est_combo with below is correct.
+        standard_predictions = pd.DataFrame(noncausal_est.predict_proba(treat_est_combo,)[:,1])
+        standard_predictions = pd.concat([standard_predictions,treat_identifiers],axis=1)
+        logger.info(f"Non-causal model fit is done!")
+        logger.info(f'{pd.DataFrame(standard_predictions).describe()}')
 
         for t_param_combo in product(*t_cv_param_dict.values()):
             t_params = dict(zip(t_cv_param_dict.keys(), t_param_combo))
@@ -375,6 +398,9 @@ def marketing_dml_test(
                     for score in fold_scores:
                         output_results.write(f"{score},")
 
+                if isinstance(est.score_, float):
+                    est.score_ = [est.score_]
+
                 for y_resid_score in est.score_:
                     output_results.write(f"{y_resid_score},")
                 output_results.write("\n")
@@ -393,13 +419,17 @@ def marketing_dml_test(
                     logger.info(f"{res.summary()}")
 
                 logger.info(f"{model_name}.fit done, score: {est.score_}")
-                # logger.info(f"Calculating effects on {treat_est_combo}")
-                # effects = pd.DataFrame(est.effect(treat_est_combo[x_cols],
-                #                     T1=treat_est_combo[t_cols]))
-                # effects = pd.concat([effects, treat_identifiers],axis=1)
-                # effects = effects.merge(standard_predictions,on=['x_id','treat_id'])
-                # logger.info("effects done")
-                # logger.info(f'{pd.DataFrame(effects).describe()}')
+                logger.info(f"Calculating effects on {treat_est_combo}")
+                effects = pd.DataFrame(
+                    est.effect(
+                        treat_est_combo[x_cols], 
+                        T1=treat_est_combo[t_cols],
+                    )
+                )
+                effects = pd.concat([effects, treat_identifiers],axis=1)
+                effects = effects.merge(standard_predictions,on=['x_id','treat_id'])
+                logger.info("effects done")
+                logger.info(f'{pd.DataFrame(effects).describe()}')
 
 
                 if model_name == "SparseLinearDML":
