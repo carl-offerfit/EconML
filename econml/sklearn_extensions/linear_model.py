@@ -17,6 +17,7 @@ from __future__ import annotations  # needed to allow type signature to refer to
 
 import numbers
 import numpy as np
+import logging
 import warnings
 from collections.abc import Iterable
 from scipy.stats import norm
@@ -37,6 +38,8 @@ from statsmodels.api import RLM
 import statsmodels
 from joblib import Parallel, delayed
 from typing import List
+
+logger = logging.getLogger(__name__)
 
 
 class _WeightedCVIterableWrapper(_CVIterableWrapper):
@@ -723,8 +726,10 @@ class DebiasedLasso(WeightedLasso):
         self.selected_alpha_ = None
         if self.alpha == 'auto':
             # Select optimal penalty
+            logger.info(f"STARTING _get_optimal_alpha")
             self.alpha = self._get_optimal_alpha(X, y, sample_weight)
             self.selected_alpha_ = self.alpha
+            logger.info(f"_get_optimal_alpha selected {self.alpha}")
         else:
             # Warn about consistency
             warnings.warn("Setting a suboptimal alpha can lead to miscalibrated confidence intervals. "

@@ -3,6 +3,7 @@
 
 from warnings import warn
 
+import logging
 import numpy as np
 from sklearn.base import TransformerMixin, clone
 from sklearn.linear_model import (ElasticNetCV)
@@ -26,6 +27,7 @@ from ..utilities import (add_intercept,
 from .._shap import _shap_explain_model_cate
 from ..sklearn_extensions.model_selection import get_selector, SingleModelSelector
 
+logger = logging.getLogger(__name__)
 
 def _combine(X, W, n_samples):
     if X is None:
@@ -435,6 +437,13 @@ class DML(LinearModelFinalCateEstimatorMixin, _BaseDML):
         Options to pass to the remote function when using Ray.
         See https://docs.ray.io/en/latest/ray-core/api/doc/ray.remote.html
 
+    diagnostic_level: int, defaut 0
+        Level of additional information to produce during the fit.
+        0 = None
+        1 = Log info about stage of the fit process
+        2 = Evaluate 1st stage models
+        3 = SHAP plots for 1st stage models
+
     Examples
     --------
     A simple example with discrete treatment and a linear model_final (equivalent to LinearDML):
@@ -497,7 +506,8 @@ class DML(LinearModelFinalCateEstimatorMixin, _BaseDML):
                  random_state=None,
                  allow_missing=False,
                  use_ray=False,
-                 ray_remote_func_options=None
+                 ray_remote_func_options=None,
+                 diagnostic_level=0
                  ):
         self.fit_cate_intercept = fit_cate_intercept
         if linear_first_stages != "deprecated":
@@ -517,7 +527,8 @@ class DML(LinearModelFinalCateEstimatorMixin, _BaseDML):
                          random_state=random_state,
                          allow_missing=allow_missing,
                          use_ray=use_ray,
-                         ray_remote_func_options=ray_remote_func_options)
+                         ray_remote_func_options=ray_remote_func_options,
+                         diagnostic_level=diagnostic_level)
 
     def _gen_allowed_missing_vars(self):
         return ['X', 'W'] if self.allow_missing else []
@@ -1008,7 +1019,8 @@ class SparseLinearDML(DebiasedLassoCateEstimatorMixin, DML):
                  random_state=None,
                  allow_missing=False,
                  use_ray=False,
-                 ray_remote_func_options=None):
+                 ray_remote_func_options=None,
+                 diagnostic_level=0):
         self.alpha = alpha
         self.n_alphas = n_alphas
         self.alpha_cov = alpha_cov
@@ -1032,7 +1044,8 @@ class SparseLinearDML(DebiasedLassoCateEstimatorMixin, DML):
                          random_state=random_state,
                          allow_missing=allow_missing,
                          use_ray=use_ray,
-                         ray_remote_func_options=ray_remote_func_options
+                         ray_remote_func_options=ray_remote_func_options,
+                         diagnostic_level=diagnostic_level
                          )
 
     def _gen_allowed_missing_vars(self):
