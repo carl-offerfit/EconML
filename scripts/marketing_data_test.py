@@ -138,10 +138,13 @@ class XGBRegR2Score(XGBRegressor):
 
     def score(self, X, y=None):
         y_pred = self.predict(X)
-        n_outcome = y_pred.shape[1]
-        result = np.zeros(shape=(n_outcome,))
-        for out_idx in range(n_outcome):
-            result[out_idx] = sklearn.metrics.r2_score(y[:, out_idx], y_pred[:, out_idx])
+        if len(y_pred.shape)>1:
+            n_outcome = y_pred.shape[1]
+            result = np.zeros(shape=(n_outcome,))
+            for out_idx in range(n_outcome):
+                result[out_idx] = sklearn.metrics.r2_score(y[:, out_idx], y_pred[:, out_idx])
+        else:
+            result = [sklearn.metrics.r2_score(y[:], y_pred[:])]
         return result
 
 
@@ -419,15 +422,15 @@ def marketing_dml_test(
                     logger.info(f"{res.summary()}")
 
                 logger.info(f"{model_name}.fit done, score: {est.score_}")
-                logger.info(f"Calculating effects on {treat_est_combo}")
-                effects = pd.DataFrame(
-                    est.effect(
-                        treat_est_combo[x_cols], 
+                logger.info(f"Calculating effects on treatment combo size {treat_est_combo.shape}")
+                efx =   est.effect(
+                        treat_est_combo[x_cols],
                         T1=treat_est_combo[t_cols],
                     )
-                )
+                effects = pd.DataFrame(efx)
                 effects = pd.concat([effects, treat_identifiers],axis=1)
-                effects = effects.merge(standard_predictions,on=['x_id','treat_id'])
+                # effects = effects.merge(standard_predictions, how='inner', on=('x_id','treat_id'))
+                effects = pd.concat([effects,standard_predictions], axis=1)
                 logger.info("effects done")
                 logger.info(f'{pd.DataFrame(effects).describe()}')
 
