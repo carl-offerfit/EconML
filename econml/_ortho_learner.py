@@ -28,6 +28,7 @@ from collections import namedtuple
 from abc import abstractmethod
 from typing import List, Union
 
+import logging
 import numpy as np
 from sklearn.base import clone
 from sklearn.model_selection import KFold, StratifiedKFold, GroupKFold, StratifiedGroupKFold, check_cv
@@ -49,6 +50,8 @@ except ImportError as exn:
     ray = MissingModule(
         "Ray is not a dependency of the base econml package; install econml[ray] or econml[all] to require it, "
         "or install ray separately, to use functionality that depends on ray", exn)
+
+logger = logging.getLogger(__name__)
 
 
 def _fit_fold(model, train_idxs, test_idxs, calculate_scores, args, kwargs):
@@ -109,7 +112,7 @@ def _fit_fold(model, train_idxs, test_idxs, calculate_scores, args, kwargs):
     return nuisance_temp, model, (score_temp if calculate_scores else None)
 
 
-def _crossfit(models: Union[ModelSelector, List[ModelSelector]], folds, use_ray, ray_remote_fun_option,
+def _crossfit(models: Union[ModelSelector, List[ModelSelector]], folds, use_ray, ray_remote_fun_option, verbose,
               *args, **kwargs):
     """
     General crossfit based calculation of nuisance parameters.
@@ -240,6 +243,8 @@ def _crossfit(models: Union[ModelSelector, List[ModelSelector]], folds, use_ray,
         # when there is more than one model, nuisances from previous models
         # come first as positional arguments
         accumulated_args = accumulated_nuisances + args
+        if verbose:
+            logger.info(f"_crossfit calling model.train on {str(model)}")
         model.train(True, fold_vals if folds is None else folds, *accumulated_args, **kwargs)
 
         calculate_scores &= hasattr(model, 'score')
@@ -275,6 +280,9 @@ def _crossfit(models: Union[ModelSelector, List[ModelSelector]], folds, use_ray,
                 if use_ray:
                     nuisance_temp, model_out, score_temp = ray.get(fold_refs[idx])
                 else:
+                    if verbose:
+                        logger.info(f"_fit_fold {idx}")
+
                     nuisance_temp, model_out, score_temp = _fit_fold(model, train_idxs, test_idxs,
                                                                      calculate_scores, accumulated_args, kwargs)
 
@@ -568,7 +576,8 @@ class _OrthoLearner(TreatmentExpansionMixin, LinearCateEstimator):
                  mc_agg='mean',
                  allow_missing=False,
                  use_ray=False,
-                 ray_remote_func_options=None):
+                 ray_remote_func_options=None,
+                 diagnostic_level: int = 0):
         self.cv = cv
         self.discrete_outcome = discrete_outcome
         self.discrete_treatment = discrete_treatment
@@ -581,6 +590,7 @@ class _OrthoLearner(TreatmentExpansionMixin, LinearCateEstimator):
         self.allow_missing = allow_missing
         self.use_ray = use_ray
         self.ray_remote_func_options = ray_remote_func_options
+        self.diagnostic_level = diagnostic_level
         super().__init__()
 
     def _gen_allowed_missing_vars(self):
@@ -968,10 +978,30 @@ class _OrthoLearner(TreatmentExpansionMixin, LinearCateEstimator):
             else:
                 folds = splitter.split(to_split, strata)
 
+        if self.diagnostic_level>0:
+            logger.info(f"Starting _fit_nuisance starting _crossfit folds={folds}, Y:{Y.shape} Ymean={np.mean(Y)}, T:{T.shape}")
+
+        verbose_crossfit = self.diagnostic_level>1
         nuisances, fitted_models, fitted_inds, scores = _crossfit(self._ortho_learner_model_nuisance, folds,
-                                                                  self.use_ray, self.ray_remote_func_options, Y, T,
+                                                                  self.use_ray, self.ray_remote_func_options, verbose_crossfit, Y, T,
                                                                   X=X, W=W, Z=Z, sample_weight=sample_weight,
                                                                   groups=groups)
+
+        if self.diagnostic_level>0:
+            logger.info(f"_crossfit complete!")
+        if self.diagnostic_level>1:
+            # Y score returned first. See _ModelNuisance.score
+            logger.info(f"Y scores Cross-Test:")
+            for fold_idx, s in enumerate(scores[0]):
+                logger.info(f"    Fold {fold_idx} : {s}")
+            logger.info(f"T scores Cross-Test:")
+            for fold_idx, fold_scores in enumerate(scores[1]):
+                if  len(fold_scores)==1:
+                   logger.info(f"    Fold {fold_idx} : {scores}")
+                else:
+                    score_string = ",".join([f"{s:.3f}" for s in fold_scores])
+                    logger.info(f"    Fold {fold_idx} : {score_string}")
+
         return nuisances, fitted_models, fitted_inds, scores
 
     def _fit_final(self, Y, T, X=None, W=None, Z=None, nuisances=None, sample_weight=None,
